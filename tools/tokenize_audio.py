@@ -53,7 +53,7 @@ def worker(worker_id: int, gpu_id: int, dialogue_names: list[str], args: argpars
         filename=hf_hub_download(args.audio_tokenizer_repo, args.audio_tokenizer_name),
         device=device,
     )
-    pbar = tqdm(dialogue_names, desc=f"Worker {worker_id}", dynamic_ncols=True)
+    pbar = tqdm(dialogue_names, desc=f"Worker {worker_id}", dynamic_ncols=True, position=worker_id)
 
     for dialogue_name in pbar:
         pbar.set_postfix_str(dialogue_name)

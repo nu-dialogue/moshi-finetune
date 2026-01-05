@@ -10,6 +10,7 @@ dependencies = [
     "deepspeed==0.15.4",
     "moshi==0.1.0",
     "soundfile>=0.12.1",
+    "sphn==0.1.12",
     "torch>=2.4.1",
     "torchaudio>=2.4.1",
     "transformers>=4.46.1",

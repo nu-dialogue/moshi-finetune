@@ -21,9 +21,9 @@ import json
 import math
 import os
 import re
-import typing
 from collections import OrderedDict
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import torch
 from deepspeed.checkpoint.constants import (
@@ -630,7 +630,11 @@ def convert_zero_checkpoint_to_fp32_state_dict(
             state_dict, filename_pattern=filename_pattern, max_shard_size=max_shard_size
         )
     else:
-        StateDictSplit = typing.NamedTuple("StateDictSplit", ["is_sharded", "filename_to_tensors"])
+
+        class StateDictSplit(NamedTuple):
+            is_sharded: bool
+            filename_to_tensors: dict
+
         state_dict_split = StateDictSplit(
             is_sharded=False, filename_to_tensors={weights_name: list(state_dict.keys())}
         )

@@ -46,13 +46,14 @@ def tokenize_audio(
     return audio_ids
 
 
-def worker(process_id: int, dialogue_names: list[str], args: argparse.Namespace):
-    device = torch.device("cuda", process_id)
+def worker(worker_id: int, gpu_id: int, dialogue_names: list[str], args: argparse.Namespace):
+    torch.cuda.set_device(gpu_id)
+    device = torch.device(f"cuda:{gpu_id}")
     mimi = loaders.get_mimi(
         filename=hf_hub_download(args.audio_tokenizer_repo, args.audio_tokenizer_name),
         device=device,
     )
-    pbar = tqdm(dialogue_names, desc=f"Worker {process_id}", dynamic_ncols=True)
+    pbar = tqdm(dialogue_names, desc=f"Worker {worker_id}", dynamic_ncols=True, position=worker_id)
 
     for dialogue_name in pbar:
         pbar.set_postfix_str(dialogue_name)
@@ -69,14 +70,12 @@ def worker(process_id: int, dialogue_names: list[str], args: argparse.Namespace)
 
         # save tokenized audio
         output_path = os.path.join(args.output_dir, f"{dialogue_name}.npz")
-        try:
-            np.savez_compressed(output_path, A=audio_ids_A.numpy(), B=audio_ids_B.numpy())
-        except Exception as e:
-            print(f"Failed to save {output_path}: {e}")
-            os.remove(output_path)
+        np.savez_compressed(output_path, A=audio_ids_A.numpy(), B=audio_ids_B.numpy())
 
 
 def main(args):
+    mp.set_start_method("spawn", force=True)  # CUDA-safe
+
     dialogue_names = [
         os.path.splitext(d)[0] for d in os.listdir(args.audio_dir) if d.endswith(".wav")
     ]
@@ -89,30 +88,21 @@ def main(args):
         print(f"Skipping {len(tokenized_dialogue_names)} already tokenized dialogues.")
         dialogue_names = list(set(dialogue_names) - set(tokenized_dialogue_names))
 
-    if args.num_workers == 1:
-        worker(0, dialogue_names, args)
+    num_gpus = torch.cuda.device_count()
+    if num_gpus == 0:
+        raise RuntimeError("No CUDA GPUs found.")
 
-    else:
-        num_devices = torch.cuda.device_count()
-        if args.num_workers > num_devices:
-            print(
-                f"Number of workers ({args.num_workers}) exceeds number of available GPUs ({num_devices})."
-            )
-            args.num_workers = num_devices
-            print(f"Using {args.num_workers} workers.")
+    dialogue_names_per_worker = np.array_split(dialogue_names, args.num_workers)
 
-        dialogue_names_per_worker = np.array_split(dialogue_names, args.num_workers)
-        print(
-            f"Each of {args.num_workers} workers processes {len(dialogue_names_per_worker[0])} dialogues."
-        )
+    processes: list[mp.Process] = []
+    for worker_id, names in enumerate(dialogue_names_per_worker):
+        gpu_id = worker_id % num_gpus
+        p = mp.Process(target=worker, args=(worker_id, gpu_id, list(names), args))
+        p.start()
+        processes.append(p)
 
-        processes = []
-        for i, dialogue_names in enumerate(dialogue_names_per_worker):
-            p = mp.Process(target=worker, args=(i, dialogue_names, args))
-            p.start()
-            processes.append(p)
-        for p in processes:
-            p.join()
+    for p in processes:
+        p.join()
 
 
 if __name__ == "__main__":
